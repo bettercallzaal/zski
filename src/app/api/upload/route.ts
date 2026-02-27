@@ -1,9 +1,10 @@
-import { neon } from "@neondatabase/serverless";
+import { getSQL, ensureTable } from "@/lib/db";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function POST(request: NextRequest) {
   try {
-    const sql = neon(process.env.DATABASE_URL!);
+    await ensureTable();
+    const sql = getSQL();
 
     const formData = await request.formData();
     const file = formData.get("file") as File | null;
@@ -24,7 +25,6 @@ export async function POST(request: NextRequest) {
     const base64 = Buffer.from(bytes).toString("base64");
     const dataUrl = `data:${file.type};base64,${base64}`;
 
-    // Save to Neon Postgres
     const result = await sql`
       INSERT INTO posts (image_url, caption, author, location, latitude, longitude)
       VALUES (${dataUrl}, ${caption}, ${author}, ${location}, ${latitude}, ${longitude})

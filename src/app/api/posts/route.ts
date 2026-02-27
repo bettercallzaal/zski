@@ -1,7 +1,9 @@
+import { ensureTable } from "@/lib/db";
 import { Pool } from "@neondatabase/serverless";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function GET(request: NextRequest) {
+  await ensureTable();
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
   try {

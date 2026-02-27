@@ -123,11 +123,26 @@ export default function Home() {
         setGpsCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
         setGpsLoading(false);
       },
-      () => {
-        alert("Could not get your location");
-        setGpsLoading(false);
+      (err) => {
+        // Retry with low accuracy if high accuracy fails
+        if (err.code === err.TIMEOUT) {
+          navigator.geolocation.getCurrentPosition(
+            (pos) => {
+              setGpsCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+              setGpsLoading(false);
+            },
+            () => {
+              alert("Could not get location. Make sure location access is enabled.");
+              setGpsLoading(false);
+            },
+            { enableHighAccuracy: false, timeout: 15000 }
+          );
+        } else {
+          alert("Could not get location. Make sure location access is enabled in your browser settings.");
+          setGpsLoading(false);
+        }
       },
-      { enableHighAccuracy: true, timeout: 10000 }
+      { enableHighAccuracy: true, timeout: 15000 }
     );
   };
 
