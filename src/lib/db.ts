@@ -18,10 +18,14 @@ export function getPool() {
 let _supabase: SupabaseClient;
 export function getSupabase() {
   if (!_supabase) {
-    _supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
+    if (!url || !key) {
+      throw new Error(
+        `Missing Supabase env vars. Have: ${Object.keys(process.env).filter(k => k.includes("SUPABASE")).join(", ") || "none"}`
+      );
+    }
+    _supabase = createClient(url, key);
   }
   return _supabase;
 }
