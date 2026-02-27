@@ -1,9 +1,10 @@
-import { put } from "@vercel/blob";
-import { sql } from "@vercel/postgres";
+import { neon } from "@neondatabase/serverless";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function POST(request: NextRequest) {
   try {
+    const sql = neon(process.env.DATABASE_URL!);
+
     const formData = await request.formData();
     const file = formData.get("file") as File | null;
     const caption = (formData.get("caption") as string) || "";
@@ -18,19 +19,19 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "No file provided" }, { status: 400 });
     }
 
-    // Upload to Vercel Blob
-    const blob = await put(`ski/${Date.now()}-${file.name}`, file, {
-      access: "public",
-    });
+    // Convert file to base64 data URL
+    const bytes = await file.arrayBuffer();
+    const base64 = Buffer.from(bytes).toString("base64");
+    const dataUrl = `data:${file.type};base64,${base64}`;
 
-    // Save to Postgres
+    // Save to Neon Postgres
     const result = await sql`
       INSERT INTO posts (image_url, caption, author, location, latitude, longitude)
-      VALUES (${blob.url}, ${caption}, ${author}, ${location}, ${latitude}, ${longitude})
+      VALUES (${dataUrl}, ${caption}, ${author}, ${location}, ${latitude}, ${longitude})
       RETURNING id, image_url, caption, author, location, latitude, longitude, created_at
     `;
 
-    return NextResponse.json(result.rows[0]);
+    return NextResponse.json(result[0]);
   } catch (error) {
     return NextResponse.json(
       { error: (error as Error).message },
