@@ -1,63 +1,30 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 
-interface SkiPost {
-  id: string;
-  image: string;
-  location: string;
+interface Post {
+  id: number;
+  image_url: string;
   caption: string;
   author: string;
-  timestamp: number;
-  likes: number;
-  liked: boolean;
+  created_at: string;
 }
 
-const SAMPLE_POSTS: SkiPost[] = [
-  {
-    id: "s1",
-    image: "https://images.unsplash.com/photo-1551524559-8af4e6624178?w=800&q=80",
-    location: "Whistler Blackcomb, BC",
-    caption: "Fresh powder day! Waist deep and still coming down",
-    author: "PowderHound",
-    timestamp: Date.now() - 3600000,
-    likes: 24,
-    liked: false,
-  },
-  {
-    id: "s2",
-    image: "https://images.unsplash.com/photo-1605540436563-5bca919ae766?w=800&q=80",
-    location: "Chamonix, France",
-    caption: "Bluebird day in the Alps. Can't beat these views",
-    author: "AlpineRider",
-    timestamp: Date.now() - 7200000,
-    likes: 42,
-    liked: false,
-  },
-  {
-    id: "s3",
-    image: "https://images.unsplash.com/photo-1565992441121-4367c2967103?w=800&q=80",
-    location: "Park City, Utah",
-    caption: "Sunset runs hit different",
-    author: "SkiBum99",
-    timestamp: Date.now() - 14400000,
-    likes: 18,
-    liked: false,
-  },
-];
-
 function Snow() {
-  const [flakes, setFlakes] = useState<{ id: number; left: number; delay: number; duration: number; size: number }[]>([]);
+  const [flakes, setFlakes] = useState<
+    { id: number; left: number; delay: number; duration: number; size: number }[]
+  >([]);
 
   useEffect(() => {
-    const f = Array.from({ length: 30 }, (_, i) => ({
-      id: i,
-      left: Math.random() * 100,
-      delay: Math.random() * 5,
-      duration: 5 + Math.random() * 10,
-      size: 0.5 + Math.random() * 1,
-    }));
-    setFlakes(f);
+    setFlakes(
+      Array.from({ length: 30 }, (_, i) => ({
+        id: i,
+        left: Math.random() * 100,
+        delay: Math.random() * 5,
+        duration: 5 + Math.random() * 10,
+        size: 0.5 + Math.random() * 1,
+      }))
+    );
   }, []);
 
   return (
@@ -80,8 +47,8 @@ function Snow() {
   );
 }
 
-function timeAgo(ts: number): string {
-  const diff = Date.now() - ts;
+function timeAgo(dateStr: string): string {
+  const diff = Date.now() - new Date(dateStr).getTime();
   const mins = Math.floor(diff / 60000);
   if (mins < 1) return "just now";
   if (mins < 60) return `${mins}m ago`;
@@ -91,69 +58,69 @@ function timeAgo(ts: number): string {
 }
 
 export default function Home() {
-  const [posts, setPosts] = useState<SkiPost[]>(SAMPLE_POSTS);
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [loading, setLoading] = useState(true);
   const [showUpload, setShowUpload] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
-  const [location, setLocation] = useState("");
+  const [file, setFile] = useState<File | null>(null);
   const [caption, setCaption] = useState("");
   const [author, setAuthor] = useState("");
+  const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    const saved = localStorage.getItem("zski-posts");
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved) as SkiPost[];
-        setPosts([...parsed, ...SAMPLE_POSTS]);
-      } catch {
-        /* ignore */
+  const fetchPosts = useCallback(async () => {
+    try {
+      const res = await fetch("/api/posts");
+      if (res.ok) {
+        const data = await res.json();
+        setPosts(data);
       }
+    } catch {
+      /* offline or not set up yet */
+    } finally {
+      setLoading(false);
     }
   }, []);
 
-  const saveUserPosts = (allPosts: SkiPost[]) => {
-    const userPosts = allPosts.filter((p) => !p.id.startsWith("s"));
-    localStorage.setItem("zski-posts", JSON.stringify(userPosts));
-  };
+  useEffect(() => {
+    fetchPosts();
+  }, [fetchPosts]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const f = e.target.files?.[0];
+    if (!f) return;
+    setFile(f);
     const reader = new FileReader();
     reader.onload = () => setPreview(reader.result as string);
-    reader.readAsDataURL(file);
+    reader.readAsDataURL(f);
   };
 
-  const handlePost = () => {
-    if (!preview || !location) return;
-    const newPost: SkiPost = {
-      id: crypto.randomUUID(),
-      image: preview,
-      location,
-      caption,
-      author: author || "Anonymous Skier",
-      timestamp: Date.now(),
-      likes: 0,
-      liked: false,
-    };
-    const updated = [newPost, ...posts];
-    setPosts(updated);
-    saveUserPosts(updated);
-    setShowUpload(false);
-    setPreview(null);
-    setLocation("");
-    setCaption("");
-    setAuthor("");
-  };
+  const handlePost = async () => {
+    if (!file) return;
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("caption", caption);
+      formData.append("author", author || "Anonymous");
 
-  const toggleLike = (id: string) => {
-    const updated = posts.map((p) =>
-      p.id === id
-        ? { ...p, liked: !p.liked, likes: p.liked ? p.likes - 1 : p.likes + 1 }
-        : p
-    );
-    setPosts(updated);
-    saveUserPosts(updated);
+      const res = await fetch("/api/upload", { method: "POST", body: formData });
+      if (res.ok) {
+        setShowUpload(false);
+        setPreview(null);
+        setFile(null);
+        setCaption("");
+        setAuthor("");
+        fetchPosts();
+      } else {
+        const err = await res.json();
+        alert(`Upload failed: ${err.error}`);
+      }
+    } catch {
+      alert("Upload failed — check your connection");
+    } finally {
+      setUploading(false);
+    }
   };
 
   return (
@@ -163,17 +130,22 @@ export default function Home() {
       {/* Header */}
       <header className="sticky top-0 z-40 backdrop-blur-md bg-[#0b1120]/80 border-b border-white/10">
         <div className="max-w-2xl mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             <span className="text-3xl">⛷️</span>
-            <h1 className="text-2xl font-bold bg-gradient-to-r from-cyan-300 to-blue-400 bg-clip-text text-transparent">
-              ZSki
-            </h1>
+            <div>
+              <h1 className="text-xl font-bold bg-gradient-to-r from-cyan-300 to-blue-400 bg-clip-text text-transparent leading-tight">
+                ZSki
+              </h1>
+              <p className="text-[11px] text-white/40 tracking-wide">
+                Attitash 2026
+              </p>
+            </div>
           </div>
           <button
             onClick={() => setShowUpload(!showUpload)}
             className="bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white px-4 py-2 rounded-full font-semibold text-sm transition-all shadow-lg shadow-cyan-500/25 cursor-pointer"
           >
-            {showUpload ? "Cancel" : "+ Share Photo"}
+            {showUpload ? "Cancel" : "+ Post"}
           </button>
         </div>
       </header>
@@ -182,7 +154,7 @@ export default function Home() {
         {/* Upload Form */}
         {showUpload && (
           <div className="mb-8 bg-white/5 backdrop-blur-sm rounded-2xl p-6 border border-white/10">
-            <h2 className="text-lg font-semibold mb-4">Share your ski moment</h2>
+            <h2 className="text-lg font-semibold mb-4">Drop a photo</h2>
 
             <div
               onClick={() => fileRef.current?.click()}
@@ -197,7 +169,7 @@ export default function Home() {
               ) : (
                 <div className="text-white/50">
                   <span className="text-4xl block mb-2">📸</span>
-                  <p>Tap to add your ski photo</p>
+                  <p>Tap to add your photo</p>
                 </div>
               )}
               <input
@@ -212,16 +184,9 @@ export default function Home() {
             <div className="space-y-3">
               <input
                 type="text"
-                placeholder="Your name (optional)"
+                placeholder="Your name"
                 value={author}
                 onChange={(e) => setAuthor(e.target.value)}
-                className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-white placeholder-white/30 focus:outline-none focus:border-cyan-400/50"
-              />
-              <input
-                type="text"
-                placeholder="Location (e.g. Aspen, Colorado) *"
-                value={location}
-                onChange={(e) => setLocation(e.target.value)}
                 className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-white placeholder-white/30 focus:outline-none focus:border-cyan-400/50"
               />
               <textarea
@@ -233,70 +198,69 @@ export default function Home() {
               />
               <button
                 onClick={handlePost}
-                disabled={!preview || !location}
+                disabled={!file || uploading}
                 className="w-full bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 disabled:opacity-30 disabled:cursor-not-allowed text-white py-3 rounded-lg font-semibold transition-all cursor-pointer"
               >
-                Post to ZSki
+                {uploading ? "Uploading..." : "Post"}
               </button>
             </div>
           </div>
         )}
 
         {/* Feed */}
-        <div className="space-y-6">
-          {posts.map((post) => (
-            <article
-              key={post.id}
-              className="bg-white/5 backdrop-blur-sm rounded-2xl overflow-hidden border border-white/10 hover:border-white/20 transition-colors"
-            >
-              <div className="px-4 py-3 flex items-center gap-3">
-                <div className="w-9 h-9 rounded-full bg-gradient-to-br from-cyan-400 to-blue-600 flex items-center justify-center text-sm font-bold">
-                  {post.author[0].toUpperCase()}
+        {loading ? (
+          <div className="text-center py-20 text-white/30">Loading...</div>
+        ) : posts.length === 0 ? (
+          <div className="text-center py-20">
+            <span className="text-6xl block mb-4">🏔️</span>
+            <p className="text-white/40 text-lg">No photos yet</p>
+            <p className="text-white/25 text-sm mt-1">
+              Be the first to post from Attitash!
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-6">
+            {posts.map((post) => (
+              <article
+                key={post.id}
+                className="bg-white/5 backdrop-blur-sm rounded-2xl overflow-hidden border border-white/10 hover:border-white/20 transition-colors"
+              >
+                <div className="px-4 py-3 flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-full bg-gradient-to-br from-cyan-400 to-blue-600 flex items-center justify-center text-sm font-bold shrink-0">
+                    {post.author[0].toUpperCase()}
+                  </div>
+                  <div>
+                    <p className="font-semibold text-sm">{post.author}</p>
+                    <p className="text-xs text-white/40">
+                      {timeAgo(post.created_at)}
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <p className="font-semibold text-sm">{post.author}</p>
-                  <p className="text-xs text-white/40">{timeAgo(post.timestamp)}</p>
-                </div>
-              </div>
 
-              <div className="relative">
                 <img
-                  src={post.image}
+                  src={post.image_url}
                   alt={post.caption || "Ski photo"}
                   className="w-full max-h-[500px] object-cover"
                   loading="lazy"
                 />
-              </div>
 
-              <div className="px-4 py-3">
-                <div className="flex items-center justify-between mb-2">
-                  <button
-                    onClick={() => toggleLike(post.id)}
-                    className="flex items-center gap-1.5 text-sm cursor-pointer hover:scale-110 transition-transform"
-                  >
-                    <span className={post.liked ? "text-red-400" : "text-white/50"}>
-                      {post.liked ? "❤️" : "🤍"}
-                    </span>
-                    <span className="text-white/60">{post.likes}</span>
-                  </button>
-                  <div className="flex items-center gap-1 text-sm text-cyan-300/80">
-                    <span>📍</span>
-                    <span>{post.location}</span>
-                  </div>
-                </div>
                 {post.caption && (
-                  <p className="text-sm text-white/70">
-                    <span className="font-semibold text-white/90">{post.author}</span>{" "}
-                    {post.caption}
-                  </p>
+                  <div className="px-4 py-3">
+                    <p className="text-sm text-white/70">
+                      <span className="font-semibold text-white/90">
+                        {post.author}
+                      </span>{" "}
+                      {post.caption}
+                    </p>
+                  </div>
                 )}
-              </div>
-            </article>
-          ))}
-        </div>
+              </article>
+            ))}
+          </div>
+        )}
 
         <footer className="text-center py-12 text-white/20 text-sm">
-          Made with fresh powder by ZSki
+          Attitash 2026 — ZSki
         </footer>
       </main>
     </div>
