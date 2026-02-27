@@ -118,32 +118,51 @@ export default function Home() {
       return;
     }
     setGpsLoading(true);
-    navigator.geolocation.getCurrentPosition(
+
+    // Use watchPosition for reliability — iPhones refine from cell tower → GPS
+    // over multiple callbacks. We accept the first fix with accuracy < 100m,
+    // or the best fix we get within 15s.
+    let bestCoords: { lat: number; lng: number; accuracy: number } | null = null;
+
+    const watchId = navigator.geolocation.watchPosition(
       (pos) => {
-        setGpsCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-        setGpsLoading(false);
-      },
-      (err) => {
-        // Retry with low accuracy if high accuracy fails
-        if (err.code === err.TIMEOUT) {
-          navigator.geolocation.getCurrentPosition(
-            (pos) => {
-              setGpsCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-              setGpsLoading(false);
-            },
-            () => {
-              alert("Could not get location. Make sure location access is enabled.");
-              setGpsLoading(false);
-            },
-            { enableHighAccuracy: false, timeout: 15000 }
-          );
-        } else {
-          alert("Could not get location. Make sure location access is enabled in your browser settings.");
+        const { latitude, longitude, accuracy } = pos.coords;
+        if (!bestCoords || accuracy < bestCoords.accuracy) {
+          bestCoords = { lat: latitude, lng: longitude, accuracy };
+        }
+        // Accept once accuracy is good enough
+        if (accuracy <= 100) {
+          navigator.geolocation.clearWatch(watchId);
+          clearTimeout(deadline);
+          setGpsCoords({ lat: bestCoords.lat, lng: bestCoords.lng });
           setGpsLoading(false);
         }
       },
-      { enableHighAccuracy: true, timeout: 15000 }
+      (err) => {
+        navigator.geolocation.clearWatch(watchId);
+        clearTimeout(deadline);
+        if (err.code === err.PERMISSION_DENIED) {
+          alert(
+            "Location permission denied.\n\nOn iOS Safari: Settings > Safari > Location > Allow.\nOn other browsers: tap the lock icon in the address bar and enable Location."
+          );
+        } else {
+          alert("Location unavailable. Make sure Location Services are turned on.");
+        }
+        setGpsLoading(false);
+      },
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 30000 }
     );
+
+    // Safety deadline — use whatever we have after 15s
+    const deadline = setTimeout(() => {
+      navigator.geolocation.clearWatch(watchId);
+      if (bestCoords) {
+        setGpsCoords({ lat: bestCoords.lat, lng: bestCoords.lng });
+      } else {
+        alert("GPS timed out. Try again in an open area.");
+      }
+      setGpsLoading(false);
+    }, 15000);
   };
 
   const handlePost = async () => {

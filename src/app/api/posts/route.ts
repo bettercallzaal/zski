@@ -1,10 +1,8 @@
-import { ensureTable } from "@/lib/db";
-import { Pool } from "@neondatabase/serverless";
+import { getPool, ensureTable } from "@/lib/db";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function GET(request: NextRequest) {
   await ensureTable();
-  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
   try {
     const { searchParams } = new URL(request.url);
@@ -38,14 +36,12 @@ export async function GET(request: NextRequest) {
       ORDER BY created_at DESC
     `;
 
-    const { rows } = await pool.query(query, params);
+    const { rows } = await getPool().query(query, params);
     return NextResponse.json(rows);
   } catch (error) {
     return NextResponse.json(
       { error: (error as Error).message },
       { status: 500 }
     );
-  } finally {
-    await pool.end();
   }
 }

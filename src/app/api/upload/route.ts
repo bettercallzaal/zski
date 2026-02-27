@@ -1,10 +1,9 @@
-import { getSQL, ensureTable } from "@/lib/db";
+import { getSQL, getSupabase, ensureTable } from "@/lib/db";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function POST(request: NextRequest) {
   try {
     await ensureTable();
-    const sql = getSQL();
 
     const formData = await request.formData();
     const file = formData.get("file") as File | null;
@@ -20,14 +19,38 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "No file provided" }, { status: 400 });
     }
 
-    // Convert file to base64 data URL
-    const bytes = await file.arrayBuffer();
-    const base64 = Buffer.from(bytes).toString("base64");
-    const dataUrl = `data:${file.type};base64,${base64}`;
+    // Upload to Supabase Storage
+    const ext = file.name.split(".").pop() || "jpg";
+    const fileName = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
 
+    const bytes = await file.arrayBuffer();
+    const supabase = getSupabase();
+    const { error: uploadError } = await supabase.storage
+      .from("photos")
+      .upload(fileName, Buffer.from(bytes), {
+        contentType: file.type,
+        upsert: false,
+      });
+
+    if (uploadError) {
+      return NextResponse.json(
+        { error: `Storage upload failed: ${uploadError.message}` },
+        { status: 500 }
+      );
+    }
+
+    // Get public URL
+    const { data: urlData } = supabase.storage
+      .from("photos")
+      .getPublicUrl(fileName);
+
+    const imageUrl = urlData.publicUrl;
+
+    // Store URL (not base64) in Neon
+    const sql = getSQL();
     const result = await sql`
       INSERT INTO posts (image_url, caption, author, location, latitude, longitude)
-      VALUES (${dataUrl}, ${caption}, ${author}, ${location}, ${latitude}, ${longitude})
+      VALUES (${imageUrl}, ${caption}, ${author}, ${location}, ${latitude}, ${longitude})
       RETURNING id, image_url, caption, author, location, latitude, longitude, created_at
     `;
 

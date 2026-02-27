@@ -52,6 +52,7 @@ export default function MapView({ posts }: { posts: Post[] }) {
                 src={post.image_url}
                 alt={post.caption || "Photo"}
                 style={{ width: "100%", borderRadius: 6, marginBottom: 6 }}
+                loading="lazy"
               />
               <strong>{post.author}</strong>
               {post.location && <div style={{ fontSize: 12, color: "#666" }}>📍 {post.location}</div>}
