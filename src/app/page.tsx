@@ -1,14 +1,21 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import dynamic from "next/dynamic";
 
 interface Post {
   id: number;
   image_url: string;
   caption: string;
   author: string;
+  location: string | null;
+  latitude: number | null;
+  longitude: number | null;
   created_at: string;
 }
+
+// Dynamically import the map to avoid SSR issues with Leaflet
+const MapView = dynamic(() => import("./MapView"), { ssr: false });
 
 function Snow() {
   const [flakes, setFlakes] = useState<
@@ -66,11 +73,21 @@ export default function Home() {
   const [caption, setCaption] = useState("");
   const [author, setAuthor] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [location, setLocation] = useState("");
+  const [gpsCoords, setGpsCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [gpsLoading, setGpsLoading] = useState(false);
+  const [timeFilter, setTimeFilter] = useState("all");
+  const [locationFilter, setLocationFilter] = useState("");
+  const [viewMode, setViewMode] = useState<"feed" | "map">("feed");
   const fileRef = useRef<HTMLInputElement>(null);
 
   const fetchPosts = useCallback(async () => {
     try {
-      const res = await fetch("/api/posts");
+      const params = new URLSearchParams();
+      if (timeFilter !== "all") params.set("time", timeFilter);
+      if (locationFilter) params.set("location", locationFilter);
+      const qs = params.toString();
+      const res = await fetch(`/api/posts${qs ? `?${qs}` : ""}`);
       if (res.ok) {
         const data = await res.json();
         setPosts(data);
@@ -80,7 +97,7 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [timeFilter, locationFilter]);
 
   useEffect(() => {
     fetchPosts();
@@ -95,6 +112,25 @@ export default function Home() {
     reader.readAsDataURL(f);
   };
 
+  const handleGPS = () => {
+    if (!navigator.geolocation) {
+      alert("GPS not available on this device");
+      return;
+    }
+    setGpsLoading(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setGpsCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        setGpsLoading(false);
+      },
+      () => {
+        alert("Could not get your location");
+        setGpsLoading(false);
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  };
+
   const handlePost = async () => {
     if (!file) return;
     setUploading(true);
@@ -103,6 +139,11 @@ export default function Home() {
       formData.append("file", file);
       formData.append("caption", caption);
       formData.append("author", author || "Anonymous");
+      if (location) formData.append("location", location);
+      if (gpsCoords) {
+        formData.append("latitude", gpsCoords.lat.toString());
+        formData.append("longitude", gpsCoords.lng.toString());
+      }
 
       const res = await fetch("/api/upload", { method: "POST", body: formData });
       if (res.ok) {
@@ -111,6 +152,8 @@ export default function Home() {
         setFile(null);
         setCaption("");
         setAuthor("");
+        setLocation("");
+        setGpsCoords(null);
         fetchPosts();
       } else {
         const err = await res.json();
@@ -141,12 +184,63 @@ export default function Home() {
               </p>
             </div>
           </div>
-          <button
-            onClick={() => setShowUpload(!showUpload)}
-            className="bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white px-4 py-2 rounded-full font-semibold text-sm transition-all shadow-lg shadow-cyan-500/25 cursor-pointer"
-          >
-            {showUpload ? "Cancel" : "+ Post"}
-          </button>
+          <div className="flex items-center gap-2">
+            {/* Feed / Map toggle */}
+            <div className="flex bg-white/5 rounded-full p-0.5 border border-white/10">
+              <button
+                onClick={() => setViewMode("feed")}
+                className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all cursor-pointer ${
+                  viewMode === "feed"
+                    ? "bg-white/15 text-white"
+                    : "text-white/40 hover:text-white/60"
+                }`}
+              >
+                Feed
+              </button>
+              <button
+                onClick={() => setViewMode("map")}
+                className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all cursor-pointer ${
+                  viewMode === "map"
+                    ? "bg-white/15 text-white"
+                    : "text-white/40 hover:text-white/60"
+                }`}
+              >
+                Map
+              </button>
+            </div>
+            <button
+              onClick={() => setShowUpload(!showUpload)}
+              className="bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white px-4 py-2 rounded-full font-semibold text-sm transition-all shadow-lg shadow-cyan-500/25 cursor-pointer"
+            >
+              {showUpload ? "Cancel" : "+ Post"}
+            </button>
+          </div>
+        </div>
+
+        {/* Filter bar */}
+        <div className="max-w-2xl mx-auto px-4 pb-3 flex items-center gap-2 flex-wrap">
+          {/* Time pills */}
+          {(["today", "weekend", "all"] as const).map((t) => (
+            <button
+              key={t}
+              onClick={() => setTimeFilter(t)}
+              className={`px-3 py-1 rounded-full text-xs font-medium transition-all cursor-pointer border ${
+                timeFilter === t
+                  ? "bg-cyan-500/20 border-cyan-400/50 text-cyan-300"
+                  : "bg-white/5 border-white/10 text-white/40 hover:text-white/60"
+              }`}
+            >
+              {t === "today" ? "Today" : t === "weekend" ? "This Weekend" : "All"}
+            </button>
+          ))}
+          {/* Location filter */}
+          <input
+            type="text"
+            placeholder="Filter by spot..."
+            value={locationFilter}
+            onChange={(e) => setLocationFilter(e.target.value)}
+            className="ml-auto bg-white/5 border border-white/10 rounded-full px-3 py-1 text-xs text-white placeholder-white/30 focus:outline-none focus:border-cyan-400/50 w-36"
+          />
         </div>
       </header>
 
@@ -189,6 +283,28 @@ export default function Home() {
                 onChange={(e) => setAuthor(e.target.value)}
                 className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-white placeholder-white/30 focus:outline-none focus:border-cyan-400/50"
               />
+              <input
+                type="text"
+                placeholder="Spot name (e.g. Summit, Lodge, Parking Lot)"
+                value={location}
+                onChange={(e) => setLocation(e.target.value)}
+                className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-white placeholder-white/30 focus:outline-none focus:border-cyan-400/50"
+              />
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={handleGPS}
+                  disabled={gpsLoading}
+                  className="bg-white/10 hover:bg-white/15 border border-white/10 text-white/70 px-4 py-2.5 rounded-lg text-sm transition-all cursor-pointer disabled:opacity-40"
+                >
+                  {gpsLoading ? "Getting GPS..." : "📍 Use my location"}
+                </button>
+                {gpsCoords && (
+                  <span className="text-xs text-cyan-300/70">
+                    {gpsCoords.lat.toFixed(4)}, {gpsCoords.lng.toFixed(4)}
+                  </span>
+                )}
+              </div>
               <textarea
                 placeholder="Caption (optional)"
                 value={caption}
@@ -207,56 +323,68 @@ export default function Home() {
           </div>
         )}
 
-        {/* Feed */}
-        {loading ? (
-          <div className="text-center py-20 text-white/30">Loading...</div>
-        ) : posts.length === 0 ? (
-          <div className="text-center py-20">
-            <span className="text-6xl block mb-4">🏔️</span>
-            <p className="text-white/40 text-lg">No photos yet</p>
-            <p className="text-white/25 text-sm mt-1">
-              Be the first to post from Attitash!
-            </p>
+        {/* Map View */}
+        {viewMode === "map" ? (
+          <div className="rounded-2xl overflow-hidden border border-white/10" style={{ height: "70vh" }}>
+            <MapView posts={posts} />
           </div>
         ) : (
-          <div className="space-y-6">
-            {posts.map((post) => (
-              <article
-                key={post.id}
-                className="bg-white/5 backdrop-blur-sm rounded-2xl overflow-hidden border border-white/10 hover:border-white/20 transition-colors"
-              >
-                <div className="px-4 py-3 flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-full bg-gradient-to-br from-cyan-400 to-blue-600 flex items-center justify-center text-sm font-bold shrink-0">
-                    {post.author[0].toUpperCase()}
-                  </div>
-                  <div>
-                    <p className="font-semibold text-sm">{post.author}</p>
-                    <p className="text-xs text-white/40">
-                      {timeAgo(post.created_at)}
-                    </p>
-                  </div>
-                </div>
+          <>
+            {/* Feed */}
+            {loading ? (
+              <div className="text-center py-20 text-white/30">Loading...</div>
+            ) : posts.length === 0 ? (
+              <div className="text-center py-20">
+                <span className="text-6xl block mb-4">🏔️</span>
+                <p className="text-white/40 text-lg">No photos yet</p>
+                <p className="text-white/25 text-sm mt-1">
+                  Be the first to post from Attitash!
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {posts.map((post) => (
+                  <article
+                    key={post.id}
+                    className="bg-white/5 backdrop-blur-sm rounded-2xl overflow-hidden border border-white/10 hover:border-white/20 transition-colors"
+                  >
+                    <div className="px-4 py-3 flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-full bg-gradient-to-br from-cyan-400 to-blue-600 flex items-center justify-center text-sm font-bold shrink-0">
+                        {post.author[0].toUpperCase()}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-semibold text-sm">{post.author}</p>
+                        <p className="text-xs text-white/40">
+                          {timeAgo(post.created_at)}
+                          {post.location && (
+                            <span className="ml-1">· 📍 {post.location}</span>
+                          )}
+                        </p>
+                      </div>
+                    </div>
 
-                <img
-                  src={post.image_url}
-                  alt={post.caption || "Ski photo"}
-                  className="w-full max-h-[500px] object-cover"
-                  loading="lazy"
-                />
+                    <img
+                      src={post.image_url}
+                      alt={post.caption || "Ski photo"}
+                      className="w-full max-h-[500px] object-cover"
+                      loading="lazy"
+                    />
 
-                {post.caption && (
-                  <div className="px-4 py-3">
-                    <p className="text-sm text-white/70">
-                      <span className="font-semibold text-white/90">
-                        {post.author}
-                      </span>{" "}
-                      {post.caption}
-                    </p>
-                  </div>
-                )}
-              </article>
-            ))}
-          </div>
+                    {post.caption && (
+                      <div className="px-4 py-3">
+                        <p className="text-sm text-white/70">
+                          <span className="font-semibold text-white/90">
+                            {post.author}
+                          </span>{" "}
+                          {post.caption}
+                        </p>
+                      </div>
+                    )}
+                  </article>
+                ))}
+              </div>
+            )}
+          </>
         )}
 
         <footer className="text-center py-12 text-white/20 text-sm">

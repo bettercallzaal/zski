@@ -8,6 +8,11 @@ export async function POST(request: NextRequest) {
     const file = formData.get("file") as File | null;
     const caption = (formData.get("caption") as string) || "";
     const author = (formData.get("author") as string) || "Anonymous";
+    const location = (formData.get("location") as string) || null;
+    const latStr = formData.get("latitude") as string | null;
+    const lngStr = formData.get("longitude") as string | null;
+    const latitude = latStr ? parseFloat(latStr) : null;
+    const longitude = lngStr ? parseFloat(lngStr) : null;
 
     if (!file) {
       return NextResponse.json({ error: "No file provided" }, { status: 400 });
@@ -20,9 +25,9 @@ export async function POST(request: NextRequest) {
 
     // Save to Postgres
     const result = await sql`
-      INSERT INTO posts (image_url, caption, author)
-      VALUES (${blob.url}, ${caption}, ${author})
-      RETURNING id, image_url, caption, author, created_at
+      INSERT INTO posts (image_url, caption, author, location, latitude, longitude)
+      VALUES (${blob.url}, ${caption}, ${author}, ${location}, ${latitude}, ${longitude})
+      RETURNING id, image_url, caption, author, location, latitude, longitude, created_at
     `;
 
     return NextResponse.json(result.rows[0]);
